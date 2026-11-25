@@ -1,0 +1,13 @@
+{
+  "name": "ortak-metin",
+  "version": "1.0.0",
+  "description": "Tek linkten herkesin 5 dakikada bir 500 karakter yazabildigi kilitli ortak metin duvari",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

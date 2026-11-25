@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GlobalWall</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>GlobalWall</h1>
+      <span class="badge" id="total-badge">0 entries</span>
+    </div>
+    <div class="quota-bar">
+      <button type="button" class="nav-btn" id="toggle-authors-btn">Authors: On</button>
+      <button type="button" class="nav-btn" id="leaderboard-btn">Leaderboard</button>
+      <span>Remaining: <strong id="quota-remaining">500</strong> / 500</span>
+      <span class="timer" id="quota-timer">05:00</span>
+    </div>
+  </header>
+
+  <main class="document-wrapper" id="document-wrapper">
+    <div class="document-page" id="document-page">
+      <div class="load-more-indicator" id="load-more" hidden>Loading older entries...</div>
+      <div class="entries-container" id="entries-container"></div>
+    </div>
+  </main>
+
+  <footer class="composer-bar">
+    <form id="composer-form" class="composer-form">
+      <textarea
+        id="text-input"
+        placeholder="Write here... (Copy/paste is disabled. Entries are locked and cannot be deleted.)"
+        rows="2"
+        maxlength="500"
+        autocomplete="off"
+        spellcheck="false"
+      ></textarea>
+      <div class="composer-actions">
+        <span class="char-counter" id="char-counter">0 / 500</span>
+        <button type="submit" id="submit-btn">Post</button>
+      </div>
+    </form>
+    <div class="status-msg" id="status-msg"></div>
+  </footer>
+
+  <!-- Username Selection Modal -->
+  <div class="modal-backdrop" id="username-modal" hidden>
+    <div class="modal-card">
+      <h2>Choose a Username</h2>
+      <p>Pick a name to display on your posts (max 24 characters).</p>
+      <form id="username-form" class="modal-form">
+        <input type="text" id="username-input" maxlength="24" placeholder="e.g. Traveler" required autocomplete="off" />
+        <button type="submit">Start</button>
+      </form>
+      <div class="username-error" id="username-error"></div>
+    </div>
+  </div>
+
+  <!-- Leaderboard Modal -->
+  <div class="modal-backdrop" id="leaderboard-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Top Writers</h2>
+        <button type="button" class="close-btn" id="close-leaderboard-btn">&times;</button>
+      </div>
+      <div class="leaderboard-list" id="leaderboard-list"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
