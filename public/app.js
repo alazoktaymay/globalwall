@@ -4,6 +4,7 @@ const wrapper = document.getElementById('document-wrapper');
 const container = document.getElementById('entries-container');
 const loadMoreEl = document.getElementById('load-more');
 const totalBadge = document.getElementById('total-badge');
+const onlineBadge = document.getElementById('online-badge');
 const quotaRemainingEl = document.getElementById('quota-remaining');
 const quotaTimerEl = document.getElementById('quota-timer');
 const form = document.getElementById('composer-form');
@@ -16,17 +17,19 @@ const leaderboardBtn = document.getElementById('leaderboard-btn');
 const usernameModal = document.getElementById('username-modal');
 const usernameForm = document.getElementById('username-form');
 const usernameInput = document.getElementById('username-input');
+const passwordInput = document.getElementById('password-input');
 const usernameError = document.getElementById('username-error');
 const leaderboardModal = document.getElementById('leaderboard-modal');
 const closeLeaderboardBtn = document.getElementById('close-leaderboard-btn');
 const leaderboardList = document.getElementById('leaderboard-list');
 
 let currentUsername = localStorage.getItem('ortak_metin_username') || '';
-let isAdmin = currentUsername.toLowerCase() === 'rollpass';
+let currentToken = localStorage.getItem('ortak_metin_token') || '';
+let isAdmin = false;
 let showAuthors = localStorage.getItem('ortak_metin_show_authors') !== 'false';
 
-function applyAdminMode() {
-  isAdmin = currentUsername.toLowerCase() === 'rollpass';
+function applyAdminMode(adminFlag) {
+  isAdmin = Boolean(adminFlag);
   document.body.classList.toggle('admin-mode', isAdmin);
   if (isAdmin) {
     textInput.removeAttribute('maxlength');
@@ -37,12 +40,30 @@ function applyAdminMode() {
   }
 }
 
-applyAdminMode();
-
-if (!currentUsername) {
+async function initAuth() {
+  if (currentUsername && currentToken) {
+    try {
+      const res = await fetch('/api/verify-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUsername, token: currentToken }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        currentUsername = data.username;
+        applyAdminMode(data.isAdmin);
+        updateQuotaUI();
+        return;
+      }
+    } catch {
+      // ignore and show modal
+    }
+  }
   usernameModal.hidden = false;
   setTimeout(() => usernameInput.focus(), 50);
 }
+
+initAuth();
 
 function applyAuthorVisibility() {
   container.classList.toggle('hide-authors', !showAuthors);
@@ -61,25 +82,28 @@ toggleAuthorsBtn.addEventListener('click', () => {
 usernameForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const val = usernameInput.value.trim().slice(0, 24);
-  if (!val) return;
+  const password = passwordInput.value;
+  if (!val || password.length < 4) return;
 
   usernameError.textContent = '';
   try {
-    const res = await fetch('/api/register-username', {
+    const res = await fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: val }),
+      body: JSON.stringify({ username: val, password }),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
-      usernameError.textContent = data.error || 'This username is not available.';
+      usernameError.textContent = data.error || 'Authentication failed.';
       return;
     }
 
     currentUsername = data.username;
+    currentToken = data.token;
     localStorage.setItem('ortak_metin_username', currentUsername);
+    localStorage.setItem('ortak_metin_token', currentToken);
     usernameModal.hidden = true;
-    applyAdminMode();
+    applyAdminMode(data.isAdmin);
     updateQuotaUI();
     textInput.focus();
   } catch {
@@ -172,7 +196,7 @@ function createEntryElement(entry) {
   delBtn.className = 'delete-entry-btn';
   delBtn.textContent = 'Delete';
   delBtn.addEventListener('click', () => {
-    socket.emit('delete_entry', { id: entry.id, username: currentUsername });
+    socket.emit('delete_entry', { id: entry.id, username: currentUsername, token: currentToken });
   });
 
   div.append(author, body, delBtn);
@@ -322,6 +346,10 @@ socket.on('leaderboard_update', (items) => {
   if (!leaderboardModal.hidden) {
     renderLeaderboard(items);
   }
+});
+
+socket.on('online_count', (count) => {
+  onlineBadge.textContent = `${count} online`;
 });
 
 socket.on('entry_deleted', ({ id }) => {

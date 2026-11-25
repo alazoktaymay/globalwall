@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,21 +21,39 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Kayıtlı kullanıcı adları (benzersizlik için, küçük harf olarak tutulur)
-let registeredUsers = new Set();
+// Kayıtlı kullanıcılar: Map<lowerUsername, { username, salt, hash, token }>
+let usersMap = new Map();
 if (fs.existsSync(USERS_FILE)) {
   try {
     const rawUsers = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-    registeredUsers = new Set(rawUsers.map((u) => String(u).toLowerCase()));
+    if (Array.isArray(rawUsers)) {
+      // Eski format uyumluluğu
+      rawUsers.forEach((u) => {
+        if (typeof u === 'string') {
+          usersMap.set(u.toLowerCase(), { username: u, salt: null, hash: null, token: null });
+        } else if (u && u.username) {
+          usersMap.set(u.username.toLowerCase(), u);
+        }
+      });
+    }
   } catch {
-    registeredUsers = new Set();
+    usersMap = new Map();
   }
 }
 
 function saveUsers() {
-  fs.writeFile(USERS_FILE, JSON.stringify(Array.from(registeredUsers)), (err) => {
+  fs.writeFile(USERS_FILE, JSON.stringify(Array.from(usersMap.values())), (err) => {
     if (err) console.error('Kullanıcılar kaydedilemedi:', err);
   });
+}
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(password, salt, 64).toString('hex');
+}
+
+function verifyPassword(password, salt, expectedHash) {
+  const hash = hashPassword(password, salt);
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(expectedHash, 'hex'));
 }
 
 // Bellek içi veri (hızlı sayfalama için)
@@ -102,25 +121,64 @@ setInterval(() => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Benzersiz kullanıcı adı kaydı
-app.post('/api/register-username', (req, res) => {
-  const raw = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
-  const username = raw.slice(0, 24);
-  if (!username) {
-    return res.status(400).json({ ok: false, error: 'Username cannot be empty.' });
+// Kayıt / Giriş (Şifreli + Otomatik Token)
+app.post('/api/auth', (req, res) => {
+  const rawUser = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const username = rawUser.slice(0, 24);
+
+  if (!username || password.length < 4) {
+    return res.status(400).json({ ok: false, error: 'Username and password (min 4 chars) are required.' });
   }
 
   const lower = username.toLowerCase();
-  if (lower !== 'rollpass' && registeredUsers.has(lower)) {
-    return res.status(409).json({ ok: false, error: 'This username is already taken.' });
+  const existing = usersMap.get(lower);
+
+  if (existing && existing.hash && existing.salt) {
+    // Mevcut hesap: şifre doğrula
+    if (!verifyPassword(password, existing.salt, existing.hash)) {
+      return res.status(401).json({ ok: false, error: 'Incorrect password for this username.' });
+    }
+    if (!existing.token) {
+      existing.token = crypto.randomBytes(32).toString('hex');
+      saveUsers();
+    }
+    return res.json({
+      ok: true,
+      username: existing.username,
+      token: existing.token,
+      isAdmin: lower === 'rollpass',
+    });
   }
 
-  if (lower !== 'rollpass') {
-    registeredUsers.add(lower);
-    saveUsers();
-  }
+  // Yeni hesap oluştur
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(password, salt);
+  const token = crypto.randomBytes(32).toString('hex');
 
-  res.json({ ok: true, username, isAdmin: lower === 'rollpass' });
+  usersMap.set(lower, { username, salt, hash, token });
+  saveUsers();
+
+  res.json({
+    ok: true,
+    username,
+    token,
+    isAdmin: lower === 'rollpass',
+  });
+});
+
+// Kayıtlı token ile otomatik oturum doğrulama
+app.post('/api/verify-token', (req, res) => {
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  if (!username || !token) {
+    return res.status(401).json({ ok: false });
+  }
+  const user = usersMap.get(username.toLowerCase());
+  if (!user || !user.token || user.token !== token) {
+    return res.status(401).json({ ok: false });
+  }
+  res.json({ ok: true, username: user.username, isAdmin: username.toLowerCase() === 'rollpass' });
 });
 
 // Sayfalı veri çekme (Sonsuz kaydırma için)
@@ -235,6 +293,11 @@ app.get('/api/quota', (req, res) => {
 io.on('connection', (socket) => {
   const ip = getClientIp(socket);
   socket.emit('quota_update', getQuota(ip));
+  io.emit('online_count', io.engine.clientsCount);
+
+  socket.on('disconnect', () => {
+    io.emit('online_count', io.engine.clientsCount);
+  });
 
   socket.on('submit_text', (payload, callback) => {
     const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
@@ -287,10 +350,12 @@ io.on('connection', (socket) => {
     callback?.({ ok: true, entry, quota: updatedQuota });
   });
 
-  // Sadece rollpass (admin) yazı silebilir
+  // Sadece rollpass (admin) yazı silebilir (token doğrulamalı)
   socket.on('delete_entry', (payload, callback) => {
     const username = typeof payload?.username === 'string' ? payload.username.trim().toLowerCase() : '';
-    if (username !== 'rollpass') {
+    const token = typeof payload?.token === 'string' ? payload.token : '';
+    const user = usersMap.get(username);
+    if (username !== 'rollpass' || !user || !user.token || user.token !== token) {
       return callback?.({ ok: false, error: 'Unauthorized.' });
     }
 

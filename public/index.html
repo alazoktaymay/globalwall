@@ -11,6 +11,7 @@
     <div class="brand">
       <span class="dot"></span>
       <h1>GlobalWall</h1>
+      <span class="badge" id="online-badge">1 online</span>
       <span class="badge" id="total-badge">0 entries</span>
     </div>
     <div class="quota-bar">
@@ -46,14 +47,15 @@
     <div class="status-msg" id="status-msg"></div>
   </footer>
 
-  <!-- Username Selection Modal -->
+  <!-- Username & Password Modal -->
   <div class="modal-backdrop" id="username-modal" hidden>
     <div class="modal-card">
-      <h2>Choose a Username</h2>
-      <p>Pick a name to display on your posts (max 24 characters).</p>
-      <form id="username-form" class="modal-form">
-        <input type="text" id="username-input" maxlength="24" placeholder="e.g. Traveler" required autocomplete="off" />
-        <button type="submit">Start</button>
+      <h2>Sign In / Register</h2>
+      <p>Choose a username and password. Your session will be saved automatically.</p>
+      <form id="username-form" class="modal-form" style="flex-direction: column;">
+        <input type="text" id="username-input" maxlength="24" placeholder="Username (e.g. Traveler)" required autocomplete="username" />
+        <input type="password" id="password-input" minlength="4" placeholder="Password (min 4 chars)" required autocomplete="current-password" />
+        <button type="submit">Continue</button>
       </form>
       <div class="username-error" id="username-error"></div>
     </div>
